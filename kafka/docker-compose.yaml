@@ -1,55 +1,53 @@
 version: "3.9"
 
 services:
-  # --------------------------------------------------------------------------
-  # ZooKeeper — нужен Kafka для работы кластера
-  # --------------------------------------------------------------------------
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
     container_name: kafka-zookeeper
     environment:
-      ZOOKEEPER_CLIENT_PORT: 2181
-      ZOOKEEPER_TICK_TIME: 2000
-    ports:
-      - "2181:2181"
+      ZOOKEEPER_CLIENT_PORT: 2181        # SASL не нужен
     networks: [kafka-net]
 
-  # --------------------------------------------------------------------------
-  # Kafka-брокер с SASL/PLAIN-аутентификацией
-  # --------------------------------------------------------------------------
   kafka:
     image: confluentinc/cp-kafka:7.5.0
     container_name: kafka-broker
-    depends_on:
-      - zookeeper
+    depends_on: [zookeeper]
     ports:
-      - "9092:9092"
+      - "9092:9092"                      # наружу
+      - "29092:29092"                    # внутрь docker-сети
     environment:
       KAFKA_BROKER_ID: 1
-      # связь с ZooKeeper внутри сети
       KAFKA_ZOOKEEPER_CONNECT: kafka-zookeeper:2181
 
-      # слушаем и снаружи, и внутри в SASL_PLAINTEXT
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: SASL_PLAINTEXT:SASL_PLAINTEXT
-      KAFKA_LISTENERS: SASL_PLAINTEXT://0.0.0.0:9092
-      # внешний адрес брокера — подставь свой публичный IP ↓
-      KAFKA_ADVERTISED_LISTENERS: SASL_PLAINTEXT://45.132.255.35:9092
-      KAFKA_INTER_BROKER_LISTENER_NAME: SASL_PLAINTEXT
+      # --- слушатели ---
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: |
+        INTERNAL:PLAINTEXT,
+        SASL_PLAINTEXT:SASL_PLAINTEXT
+      KAFKA_LISTENERS: |
+        INTERNAL://0.0.0.0:29092,
+        SASL_PLAINTEXT://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: |
+        INTERNAL://kafka-broker:29092,             # для контейнеров
+        SASL_PLAINTEXT://45.132.255.35:9092        # внешний IP/домен
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
-      # включаем ACL (можно потом детализировать)
+      # --- SASL/PLAIN только на клиентском порту ---
+      KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAINTEXT
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: PLAINTEXT
+
+      # --- ACL и прочее ---
       KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
       KAFKA_SUPER_USERS: "User:kafkaadmin"
-
-      # репликация топиков =1 (стенд без кластера)
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
 
-      # путь к JAAS-конфигу
+      # путь к JAAS (для клиентских соединений)
       KAFKA_OPTS: -Djava.security.auth.login.config=/etc/kafka/jaas.conf
     volumes:
       - ./jaas.conf:/etc/kafka/jaas.conf:ro
     networks: [kafka-net]
-    restart: unless-stopped   # автозапуск при перезагрузке
+    restart: unless-stopped
 
 networks:
   kafka-net:
