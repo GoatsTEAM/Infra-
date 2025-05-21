@@ -1,57 +1,54 @@
-# docker-compose.yaml
-#
-# • ZooKeeper остаётся открытым (PLAINTEXT)  
-# • На внешний порт брокера (9092) включён SASL/PLAIN  
-# • Внутри docker-сети всё без авторизации (PLAINTEXT)  
-# • Kafka НЕ пытается авторизоваться в ZooKeeper
-#   (-Dzookeeper.sasl.client=false + KAFKA_ZOOKEEPER_SET_ACL=false)
+# ZooKeeper c SASL (Digest), Kafka-broker c SASL/PLAIN
+# наружу — 9092 (SASL/PLAIN), внутрь сети — 29092 (PLAINTEXT)
 
 services:
   zookeeper:
     container_name: kafka-zookeeper
     image: confluentinc/cp-zookeeper:7.5.0
+    ports:
+      - "2181:2181"
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
-    networks:
-      - kafka-net
+      ZOOKEEPER_AUTH_PROVIDER_1: org.apache.zookeeper.server.auth.SASLAuthenticationProvider
+      ZOOKEEPER_SERVER_PRINCIPAL: zookeeper
+      ZOOKEEPER_OPTS: -Djava.security.auth.login.config=/etc/kafka/zk_jaas.conf
+    volumes:
+      - ./zk_jaas.conf:/etc/kafka/zk_jaas.conf:ro
+    networks: [kafka-net]
 
   kafka:
     container_name: kafka-broker
     image: confluentinc/cp-kafka:7.5.0
-    depends_on:
-      - zookeeper
+    depends_on: [zookeeper]
     ports:
-      - "9092:9092"   # SASL/PLAIN — наружу
-      - "29092:29092" # PLAINTEXT  — внутрь docker-сети
+      - "9092:9092"
+      - "29092:29092"
     environment:
-      ## базовые параметры
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: kafka-zookeeper:2181
 
-      ## слушатели
+      # ─── слушатели ──────────────────────────────────────────────────────────
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,SASL_PLAINTEXT:SASL_PLAINTEXT"
       KAFKA_LISTENERS: "INTERNAL://0.0.0.0:29092,SASL_PLAINTEXT://0.0.0.0:9092"
       KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka-broker:29092,SASL_PLAINTEXT://45.132.255.35:9092"
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
 
-      ## SASL *только* на внешнем порту
+      # ─── SASL/PLAIN для клиентов ───────────────────────────────────────────
       KAFKA_SASL_ENABLED_MECHANISMS: PLAIN
-      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: PLAINTEXT
+      KAFKA_SASL_MECHANISM_INTER_BROKER_PROTOCOL: PLAIN
+      KAFKA_SECURITY_INTER_BROKER_PROTOCOL: PLAINTEXT   # т.к. INTERNAL — PLAINTEXT
 
-      ## ZooKeeper без SASL/ACL
-      KAFKA_ZOOKEEPER_SET_ACL: "false"
-      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf -Dzookeeper.sasl.client=false"
+      # ─── JAAS + SASL к ZooKeeper ───────────────────────────────────────────
+      KAFKA_OPTS: "-Djava.security.auth.login.config=/etc/kafka/jaas.conf"
 
-      ## ACL-авторизация в Kafka
+      # ─── ACL + системные топики ────────────────────────────────────────────
       KAFKA_AUTHORIZER_CLASS_NAME: kafka.security.auth.SimpleAclAuthorizer
       KAFKA_ALLOW_EVERYONE_IF_NO_ACL_FOUND: "false"
       KAFKA_SUPER_USERS: "User:kafkaadmin"
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-
     volumes:
       - ./jaas.conf:/etc/kafka/jaas.conf:ro
-    networks:
-      - kafka-net
+    networks: [kafka-net]
     restart: unless-stopped
 
 networks:
