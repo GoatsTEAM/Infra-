@@ -1,0 +1,50 @@
+
+global:
+  storageClass: "local-path" 
+  imageRegistry: docker.io    
+  imagePullPolicy: IfNotPresent
+
+architecture: "replication"   
+replica:
+  replicaCount: 2           
+
+master:
+  persistence:
+    enabled: true
+    size: 1Gi                 
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+replica:
+  persistence:
+    enabled: true
+    size: 1Gi
+
+  resources:
+    requests:
+      memory: 256Mi
+      cpu: 100m
+    limits:
+      memory: 512Mi
+      cpu: 500m
+
+auth:
+  enabled: true
+  password: "redisStrongPassword123"  
+
+metrics:
+  enabled: true   
+  service:
+    port: 9121
+
+service:
+  type: ClusterIP  
+
+networkPolicy:
+  enabled: false  
