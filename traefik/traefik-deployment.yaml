@@ -1,0 +1,55 @@
+# ./traefik-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik
+  namespace: traefik
+  labels:
+    app: traefik
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik
+  template:
+    metadata:
+      labels:
+        app: traefik
+    spec:
+      serviceAccountName: traefik-sa
+      containers:
+        - name: traefik
+          image: traefik:v2.10
+          args:
+            # Входящий HTTP на порт 80
+            - "--entryPoints.web.address=:80"
+            # Dashboard (порт 8080)
+            - "--entryPoints.api.address=:8080"
+            # Включаем provider для Kubernetes Ingress
+            - "--providers.kubernetesingress=true"
+            # Если нужны CRD (IngressRoute/HTTPRoute) — раскомментируйте:
+            # - "--providers.kubernetescrd=true"
+            # Отключаем провайдер Docker
+            - "--providers.docker=false"
+            - "--api.dashboard=true"
+            - "--log.level=INFO"
+          ports:
+            - name: web
+              containerPort: 80
+            - name: api
+              containerPort: 8080
+          volumeMounts:
+            # - mount из ConfigMap (если понадобятся дополнительные правила)
+            # - name: traefik-config
+            #   mountPath: /etc/traefik/traefik.yaml
+            #   subPath: traefik.yaml
+            - name: traefik-rbac
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+              readOnly: true
+      volumes:
+        - name: traefik-rbac
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3600
